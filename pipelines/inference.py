@@ -12,6 +12,7 @@ import numpy as np
 import pandas as pd
 from mlflow.pyfunc import PythonModelContext
 
+
 class Model(mlflow.pyfunc.PythonModel):
     """A custom model that can be used to make predictions.
 
