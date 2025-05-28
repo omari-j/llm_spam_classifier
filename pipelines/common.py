@@ -20,19 +20,21 @@ from metaflow import S3, IncludeFile, current
 PYTHON = "3.9"
 
 PACKAGES = {
-    "pandas": "2.2.3",
-    "torch": "2.1.0",
-    "numpy": "2.1.1",
-    "keras": "3.6.0",
+    "pandas": "2.0.3",
+    "numpy": "1.24.3",
     "boto3": "1.35.32",
-    "packaging": "24.1",
-    "mlflow": "2.17.1",
+    "packaging": "23.2",
+    "mlflow": "2.8.1",
     "setuptools": "75.1.0",
     "requests": "2.32.3",
     "evidently": "0.4.33",
     "python-dotenv": "1.0.1",
+    "torch": "1.13.1",
+    "tiktoken": "0.9.0",
     "tensorflow": "2.13.0",
     "tqdm": ">=4.36.1",
+    "nltk": "3.9.1",
+    "Faker": "37.1.0"
 }
 
 

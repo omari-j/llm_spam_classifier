@@ -64,13 +64,15 @@ NEW_CONFIG.update({"qkv_bias": True})
     packages=packages(
         "pandas",
         "numpy",
-        "keras",
-        "torch"
         "boto3",
         "packaging",
         "mlflow",
         "setuptools",
         "python-dotenv",
+        "torch",
+        "tiktoken",
+        "tensorflow",
+        "tqdm"
     ),
 )
 
