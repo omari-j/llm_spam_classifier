@@ -5,9 +5,10 @@ import sqlite3
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Optional, Dict
-
+import tiktoken
 import joblib
 import mlflow
+import torch
 import numpy as np
 import pandas as pd
 from mlflow.pyfunc import PythonModelContext
@@ -47,7 +48,6 @@ class Model(mlflow.pyfunc.PythonModel):
         self.data_collection_uri = data_collection_uri
         self.encoding_name = encoding_name
 
-
     def load_context(self, context: PythonModelContext) -> None:
         """Load the transformers and the scikit-learn model specified as artifacts.
 
@@ -57,13 +57,18 @@ class Model(mlflow.pyfunc.PythonModel):
         # backend by setting the `KERAS_BACKEND` environment variable.
 
         self._configure_logging()
-        logging.info("Loading model context...")
+
 
         self.device = "cpu"
-        self.model = self._build_model()
-        self.model.to(self.device)
 
-        output_layer = self.model.out_head
+        logging.info("Loading model context...")
+
+        self.model = torch.load(context.artifacts["model"], weights_only=False)
+
+        logging.info("Model context successfully loaded")
+
+        self.model.eval()
+        self.model.to(self.device)
 
         self.tokenizer = tiktoken.get_encoding(self.encoding_name)
         # If the DATA_COLLECTION_URI environment variable is set, we should use it
@@ -77,50 +82,7 @@ class Model(mlflow.pyfunc.PythonModel):
 
         logging.info("Data collection URI: %s", self.data_collection_uri)
 
-        logging.info(f"Loading model weights from {context.artifacts['model']}")
-        try:
-            # Try loading as a dictionary first (recommended format)
-            checkpoint = torch.load(
-                context.artifacts["model"],
-                map_location=self.device
-            )
-
-            if isinstance(checkpoint, dict) and 'state_dict' in checkpoint:
-                # If saved as a dictionary with state_dict key
-                self.model.load_state_dict(checkpoint['state_dict'])
-                logging.info("Loaded model weights from checkpoint dictionary")
-            else:
-                # If saved as a direct state_dict (your current approach)
-                self.model.load_state_dict(checkpoint)
-                logging.info("Loaded model weights from direct state_dict")
-
-        except Exception as e:
-            logging.error(f"Error loading model weights: {str(e)}")
-            raise
-
-        # Keep model in eval mode after loading
-        self.model.eval()
-
-        # Log some information about the model for debugging
-        output_layer = self.model.out_head
-        if output_layer is not None:
-            logging.info(f"Parameters of the output layer ({output_layer.__class__.__name__}):")
-            for name, param in output_layer.named_parameters():
-                logging.info(f"\nParameter name: {name}")
-                logging.info(f"Shape: {param.shape}")
-                logging.info(f"Requires grad: {param.requires_grad}")
-
-                # Calculate and log weight statistics for verification
-                if param.numel() > 0:
-                    logging.info(f"First value: {param.data.flatten()[0].item()}")
-                    logging.info(f"Min value: {param.data.min().item()}")
-                    logging.info(f"Max value: {param.data.max().item()}")
-                    logging.info(f"Mean value: {param.data.mean().item()}")
-                else:
-                    logging.info("No values (empty tensor)")
-
         logging.info("Model is ready to receive requests")
-
 
     def predict(
         self,
