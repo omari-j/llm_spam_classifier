@@ -96,7 +96,7 @@ class Training(FlowSpec, FlowMixin):
         vars={
             "MLFLOW_TRACKING_URI": os.getenv(
                 "MLFLOW_TRACKING_URI",
-                "http://127.0.0.1:5000",
+                "http://127.0.0.1:5001",
             ),
         },
     )
@@ -194,8 +194,8 @@ class Training(FlowSpec, FlowMixin):
 
         self.next(self.build_model)
 
-    @step
     @card
+    @step
     def build_model(self):
         import torch
         import torch.nn as nn
@@ -242,10 +242,10 @@ class Training(FlowSpec, FlowMixin):
         for param in self.model.final_norm.parameters():
             param.requires_grad = True
 
-        self.next()
+        self.next(self.train_model)
 
-    @step
     @card
+    @step
     def train_model(self):
         import mlflow
         import time
@@ -285,8 +285,8 @@ class Training(FlowSpec, FlowMixin):
 
         self.next(self.evaluate)
 
-    @step
     @card
+    @step
     def evaluate(self):
         """Evaluate the model we trained in the train models step
         """
@@ -321,11 +321,7 @@ class Training(FlowSpec, FlowMixin):
                 {
                     "test_accuracy": self.test_accuracy,
                     "validation_accuracy": self.val_accuracy,
-                    "train_accuracy": self.train_accuracy,
-                    "execution_time": self.execution_time,
-                    "train_losses": self.train_losses,
-                    "validation_losses": self.val_losses
-
+                    "train_accuracy": self.train_accuracy
                 },
             )
 
@@ -394,10 +390,20 @@ class Training(FlowSpec, FlowMixin):
         # Let's save the model inside the supplied directory.
 
         model_path = (Path(directory) / "model.pth").as_posix()
-        torch.save(self.model, model_path)
+        torch.save({
+            'state_dict': self.model.state_dict(),
+            'model_config': {
+                'emb_dim': NEW_CONFIG["emb_dim"],
+                'n_layers': NEW_CONFIG["n_layers"],
+                'n_heads': NEW_CONFIG["n_heads"],
+                'vocab_size': NEW_CONFIG["vocab_size"],
+                'context_length': NEW_CONFIG["context_length"],
+            },
+            'device': str(self.device)
+        }, model_path, _use_new_zipfile_serialization=True)
 
         return {
-            "model": model_path
+            "model": model_path,
         }
 
     def _get_model_signature(self):
@@ -614,7 +620,7 @@ class SpamDataset(Dataset):
 
         # Pre-tokenize texts
         self.encoded_texts = [
-            tokenizer.encode(text) for text in self._data["Text"]
+            tokenizer.encode(text) for text in self._data["text"]
         ]
 
         if max_length is None:
@@ -635,7 +641,7 @@ class SpamDataset(Dataset):
 
     def __getitem__(self, index):
         encoded = self.encoded_texts[index]
-        label = self._data.iloc[index]["Label"]
+        label = self._data.iloc[index]["ground_truth"]
         return (
             torch.tensor(encoded, dtype=torch.long),
             torch.tensor(label, dtype=torch.long)
@@ -652,6 +658,16 @@ class SpamDataset(Dataset):
                 max_length = encoded_length
         return max_length
 
+
+class GELU(nn.Module):
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, x):
+        return 0.5 * x * (1 + torch.tanh(
+            torch.sqrt(torch.tensor(2.0 / torch.pi)) *
+            (x + 0.044715 * torch.pow(x, 3))
+        ))
 
 class MultiHeadAttention(nn.Module):
     def __init__(self, d_in, d_out, context_length, dropout, num_heads, qkv_bias=False):

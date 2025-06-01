@@ -75,13 +75,15 @@ class FlowMixin:
         else:
             # When running in development mode, the raw data is passed as a string,
             # so we can convert it to a DataFrame.
-            data = pd.read_csv(StringIO(self.dataset), sep="\t", header=None, names=["Label", "Text"])
-
+            data = pd.read_csv(StringIO(self.dataset), sep="\t", header=None, names=["ground_truth", "text"])
+        column_headings = data.columns.tolist()
+        logging.info("DataFrame Column Headings: %s", column_headings)
         data = create_balanced_dataset(data)
-        data = data["Label"].map({"ham": 0, "spam": 1})
+        data["ground_truth"] = data["ground_truth"].map({"ham": 0, "spam": 1})
         seed = int(time.time() * 1000) if current.is_production else 42
         generator = np.random.default_rng(seed=seed)
         data = data.sample(frac=1, random_state=generator)
+
 
         logging.info("Loaded dataset with %d samples", len(data))
 
@@ -91,13 +93,13 @@ class FlowMixin:
 def create_balanced_dataset(df):
 
     # Count the instances of "spam"
-    num_spam = df[df["Label"] == "spam"].shape[0]
+    num_spam = df[df["ground_truth"] == "spam"].shape[0]
 
     # Randomly sample "ham" instances to match the number of "spam" instances
-    ham_subset = df[df["Label"] == "ham"].sample(num_spam, random_state=123)
+    ham_subset = df[df["ground_truth"] == "ham"].sample(num_spam, random_state=123)
 
     # Combine ham "subset" with "spam"
-    balanced_df = pd.concat([ham_subset, df[df["Label"] == "spam"]])
+    balanced_df = pd.concat([ham_subset, df[df["ground_truth"] == "spam"]])
 
     return balanced_df
 
