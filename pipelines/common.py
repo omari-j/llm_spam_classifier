@@ -27,7 +27,7 @@ PACKAGES = {
     "mlflow": "2.8.1",
     "setuptools": "75.1.0",
     "requests": "2.32.3",
-    "evidently": "0.4.33",
+    "evidently": "0.7.6",
     "python-dotenv": "1.0.1",
     "torch": "1.13.1",
     "tiktoken": "0.9.0",

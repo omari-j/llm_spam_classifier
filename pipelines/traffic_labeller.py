@@ -3,7 +3,7 @@ import random
 from typing import Dict, List, Optional, Union
 
 import pandas as pd
-
+import tensorflow as tf
 from common import PYTHON, FlowMixin, configure_logging, packages
 from metaflow import (
     FlowSpec,
@@ -729,7 +729,7 @@ class SpamTraffic(FlowSpec, FlowMixin):
         connection = sqlite3.connect(self.target_uri)
 
         # We want to return any unlabeled samples from the database.
-        df = pd.read_sql_query("SELECT * FROM data WHERE species IS NULL", connection)
+        df = pd.read_sql_query("SELECT * FROM data WHERE ground_truth IS NULL", connection)
         logging.info("Loaded %s unlabeled samples from the database.", len(df))
 
         # If there are no unlabeled samples, we don't need to do anything else.
@@ -738,11 +738,11 @@ class SpamTraffic(FlowSpec, FlowMixin):
 
         for _, row in df.iterrows():
             uuid = row["uuid"]
-            ground_truth = self._get_label(row["classification"])
+            label = self._get_label(row["classification"])
 
             # Update the database
-            update_query = "UPDATE data SET classification = ? WHERE uuid = ?"
-            connection.execute(update_query, (ground_truth, uuid))
+            update_query = "UPDATE data SET ground_truth = ? WHERE uuid = ?"
+            connection.execute(update_query, (label, uuid))
 
         connection.commit()
         connection.close()

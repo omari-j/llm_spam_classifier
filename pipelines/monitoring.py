@@ -8,6 +8,7 @@ from metaflow import (
     project,
     pypi_base,
     step,
+
 )
 
 from common import PYTHON, FlowMixin, configure_logging, packages
@@ -17,7 +18,7 @@ configure_logging()
 @project(name="salary")
 @pypi_base(
     python=PYTHON,
-    packages=packages("evidently","pandas","boto3"),
+    packages=packages("evidently","pandas","boto3", "tensorflow"),
 )
 class Monitoring (FlowSpec, FlowMixin):
     """A monitoring pipeline to monitor the performance of the hosted model
@@ -73,20 +74,29 @@ class Monitoring (FlowSpec, FlowMixin):
         from evidently import DataDefinition, Dataset, BinaryClassification
 
         self.reference_data = self.load_dataset()
+        self.reference_data_binary = self.reference_data.copy()
+        self.reference_data["ground_truth"] = self.reference_data["ground_truth"].map({ 0: "not spam", 1: "spam" })
         # When running some of the tests and reports, we need to have a prediction
         # column in the reference data to match the production dataset
         self.reference_data["classification"] = self.reference_data["ground_truth"]
         self.current_data = self._load_production_datastore()
+        self.current_data_dataframe = self.current_data.copy()
+        self.current_data_dataframe["ground_truth"] = (
+            self.current_data_dataframe["ground_truth"].map({"not spam": 0, "spam": 1})
+        )
+        self.current_data_dataframe["classification"] = (
+            self.current_data_dataframe["classification"].map({"not spam": 0, "spam": 1})
+        )
 
         # Some of the test and reports require labelled data,s o we need to filter out
         # the samples that don't have ground truth labels.
         logging.info(f"Current Data Columns: {self.current_data.columns}")
-        self.current_data_labeled = self.current_data[
+        self.current_data = self.current_data[
             self.current_data["ground_truth"].notna()
         ]
 
 
-        logging.info(f"Current Data Labeled Columns: {self.current_data_labeled.columns}")
+        logging.info(f"Current Data Labeled Columns: {self.current_data.columns}")
 
         self.definition = DataDefinition(
             classification=[BinaryClassification(
@@ -98,7 +108,9 @@ class Monitoring (FlowSpec, FlowMixin):
 
         )
 
-        self.reference_data = Dataset.from_pandas(self.reference_data, data_definition=self.definition)
+        self.reference_data = Dataset.from_pandas(
+            self.reference_data,
+            data_definition=self.definition)
 
         self.current_data = Dataset.from_pandas(
             self.current_data,
@@ -136,8 +148,12 @@ class Monitoring (FlowSpec, FlowMixin):
             DuplicatedColumnsCount(),
             DatasetMissingValueCount(),
             InListValueCount(
-                column=["ground_truth", "classification"],
-                values=["spam", "ham"]
+                column="ground_truth",
+                values=["spam", "not spam"]
+            ),
+            InListValueCount(
+                column="classification",
+                values=["spam", "not spam"]
             )
         ])
 
@@ -177,8 +193,6 @@ class Monitoring (FlowSpec, FlowMixin):
 
         # We don't want to compute data drift in the ground truth column, so we need to
         # remove it from the reference and production datasets.
-        logging.info(f"Reference Data Columns: {self.reference_data.columns}")
-        logging.info(f"Current Data Columns: {self.current_data.columns}")
 
         feature_drift_report = report.run(
             reference_data=self.reference_data,
@@ -186,7 +200,7 @@ class Monitoring (FlowSpec, FlowMixin):
         )
 
         self.html = self._get_evidently_html(feature_drift_report)
-        self.next(self.target_drift_report)
+        self.next(self.test_accuracy_score)
 
     @card(type="html")
     @step
@@ -199,18 +213,29 @@ class Monitoring (FlowSpec, FlowMixin):
         dataset.
         """
         from evidently.metrics import Accuracy
-        from evidently import Report
+        from evidently import Report, Dataset
 
         report = Report(
             metrics=[
                 Accuracy(gte=0.9),
             ],
         )
+        self.reference_data_binary["classification"] = self.reference_data_binary["ground_truth"]
 
-        if not self.current_data_labeled.empty:
+        self.reference_data_binary = Dataset.from_pandas(
+            self.reference_data_binary,
+            data_definition=self.definition)
+
+        self.current_data_binary = Dataset.from_pandas(
+            self.current_data_dataframe,
+            data_definition=self.definition
+        )
+
+
+        if not self.current_data_dataframe.empty:
             accuracy_report = report.run(
-                reference_data=self.reference_data,
-                current_data=self.current_data_labeled,
+                reference_data=self.reference_data_binary,
+                current_data=self.current_data_binary,
                 # We only want to compute drift for the prediction column, so we need to
                 # specify a column mapping without the target column.
             )
@@ -236,13 +261,13 @@ class Monitoring (FlowSpec, FlowMixin):
             metrics=[ClassificationPreset()],
         )
 
-        if not self.current_data.empty:
+        if not self.current_data_dataframe.empty:
             classification_report = report.run(
                 # The reference data is using the same target column as the prediction, so
                 # we don't want to compute the metrics for the reference data to compare
                 # them with the production data.
-                reference_data=self.reference_data,
-                current_data=self.current_data,
+                reference_data=self.reference_data_binary,
+                current_data=self.current_data_binary,
             )
             try:
                 self.html = self._get_evidently_html(classification_report)
