@@ -58,7 +58,7 @@ NEW_CONFIG.update({"context_length": 1024})
 NEW_CONFIG.update({"qkv_bias": True})
 
 
-@project(name="penguins")
+@project(name="spam")
 @pypi_base(
     python=PYTHON,
     packages=packages(
@@ -82,6 +82,7 @@ class Training(FlowSpec, FlowMixin):
     This pipeline trains, evaluates, and registers a model to classify a
     message as spam or not spam
     """
+    # Define a command-line parameter to set the minimum model accuracy for registration.
     accuracy_threshold = Parameter(
         "accuracy-threshold",
         help=(
@@ -127,26 +128,27 @@ class Training(FlowSpec, FlowMixin):
             message = f"Failed to connect to MLflow server {self.mlflow_tracking_uri}."
             raise RuntimeError(message) from e
 
-        # This is the configuration we'll use to train the model. We want to set it up
-        # at this point so we can reuse it later throughout the flow.
+        # Assign training parameters to an artifact
         self.training_parameters = {
             "epochs": TRAINING_EPOCHS,
             "batch_size": TRAINING_BATCH_SIZE,
         }
+        # Assign the tokeniser to an attribute
         self.tokenizer = tiktoken.get_encoding("gpt2")
-        # Next we need to build the pytorch dataloaders we need to fine-tune the
-        # models
+
+        # define build_dataloaders as the next step
         self.next(self.build_dataloaders)
 
     @card
     @step
     def build_dataloaders(self):
         """
-        This step use the loaded datasets to construct the pytorch dataloaders
+        This step uses the loaded dataset to construct the pytorch dataloaders
         used fine-tune the GPT-model for classification
         """
         from torch.utils.data import DataLoader
 
+        # create train, validation and test by u undersampling the
         train_df, validation_df, test_df = self._random_split(
             self.data,
             TRAINING_FRACTION,
@@ -197,6 +199,10 @@ class Training(FlowSpec, FlowMixin):
     @card
     @step
     def build_model(self):
+        """
+        This step loads the GPT-2 model weights into the model architecture
+        then adapts the model for the classification task.
+        """
         import torch
         import torch.nn as nn
         import tempfile
@@ -235,24 +241,25 @@ class Training(FlowSpec, FlowMixin):
             out_features=num_classes
         )
 
-        # setting the
+        # make the final transformer block trainable
         for param in self.model.trf_blocks[-1].parameters():
             param.requires_grad = True
 
+        # making the final normalisation layer trainable
         for param in self.model.final_norm.parameters():
             param.requires_grad = True
 
-        self.next(self.train_model)
+        self.next(self.finetune_model)
 
     @card
     @step
-    def train_model(self):
+    def finetune_model(self):
+        """
+        Fine-tune the model constructed in the previous step using the data
+        loaders we have built
+        """
         import mlflow
         import time
-
-
-
-        torch.manual_seed(123)
 
         self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=5e-5, weight_decay=0.1)
 
@@ -261,12 +268,16 @@ class Training(FlowSpec, FlowMixin):
         start_time = time.time()
 
         mlflow.set_tracking_uri(self.mlflow_tracking_uri)
-        with mlflow.start_run(run_id=self.mlflow_run_id):
+        with ((((mlflow.start_run(run_id=self.mlflow_run_id))))):
             # Let's disable the automatic logging of models during training so we
             # can log the model manually during the registration step.
             mlflow.autolog(log_models=False)
 
-            self.train_losses, self.val_losses, self.train_accs, self.val_accs, self.examples_seen = self._train_classifier_simple(
+            self.train_losses,
+            self.val_losses,
+            self.train_accs,
+            self.val_accs,
+            self.examples_seen = self._train_classifier_simple(
                 self.model,
                 self.train_loader,
                 self.val_loader,
@@ -294,8 +305,8 @@ class Training(FlowSpec, FlowMixin):
 
         logging.info("Evaluating the model")
 
-        # Let's evaluate the model using the test data we processed and stored as
-        # artifacts during the `transform` step.
+        # Calculate the accuracy of model trained in the previous step
+        # for each data split
         self.train_accuracy = self._calc_accuracy_loader(
             self.train_loader, self.model, self.device
         )
@@ -313,35 +324,32 @@ class Training(FlowSpec, FlowMixin):
             self.test_accuracy
         )
 
-        # Let's log everything under the same nested run we created when training the
-        # current fold's model.
+        # Log everything under the run we created
         mlflow.set_tracking_uri(self.mlflow_tracking_uri)
         with mlflow.start_run(run_id=self.mlflow_run_id):
             mlflow.log_metrics(
                 {
                     "test_accuracy": self.test_accuracy,
                     "validation_accuracy": self.val_accuracy,
-                    "train_accuracy": self.train_accuracy
+                    "train_accuracy": self.train_accuracy,
                 },
             )
 
-        # When we finish evaluating every fold in the cross-validation process, we want
-        # to evaluate the overall performance of the model by averaging the scores from
-        # each fold.
+        # Move to registration step
         self.next(self.register_model)
 
     @step
     def register_model(self):
-        """Register the model in the Model Registry.
-
+        """
+        Register the model in the Model Registry.
         This function will prepare and register the final model in the Model Registry
-
         We'll only register the model if its accuracy is above a predefined threshold.
         """
         import tempfile
-
         import mlflow
 
+        # Verify whether the models accuracy is greater than or equal to the
+        # threshold set when running the pipeline
         if self.test_accuracy >= self.accuracy_threshold:
             logging.info("Registering model...")
 
@@ -353,7 +361,7 @@ class Training(FlowSpec, FlowMixin):
                 mlflow.start_run(run_id=self.mlflow_run_id),
                 tempfile.TemporaryDirectory() as directory,
             ):
-                # We can now register the model using the name "penguins" in the Model
+                # We can now register the model using the name "spam" in the Model
                 # Registry. This will automatically create a new version of the model.
                 mlflow.pyfunc.log_model(
                     python_model=Model(data_capture=False),
