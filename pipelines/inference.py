@@ -196,10 +196,6 @@ class Model(mlflow.pyfunc.PythonModel):
     This model implements an inference pipeline with three phases: preprocessing,
     prediction, and postprocessing. The model will optionally store the input requests
     and predictions in a SQLite database.
-
-    The [Custom MLflow Models with mlflow.pyfunc](https://mlflow.org/blog/custom-pyfunc)
-    blog post is a great reference to understand how to use custom Python models in
-    MLflow.
     """
 
     def __init__(
@@ -216,7 +212,7 @@ class Model(mlflow.pyfunc.PythonModel):
 
         This constructor expects the connection URI to the storage medium where the data
         will be collected. By default, the data will be stored in a SQLite database
-        named "penguins" and located in the root directory from where the model runs.
+        named "spam.db" and located in the root directory from where the model runs.
         You can override the location by using the 'DATA_COLLECTION_URI' environment
         variable.
         """
@@ -225,29 +221,28 @@ class Model(mlflow.pyfunc.PythonModel):
         self.encoding_name = encoding_name
 
     def load_context(self, context: PythonModelContext) -> None:
-        """Load the transformers and the scikit-learn model specified as artifacts.
+        """Laod the fine-tuned weights into the model architecture.
 
         This function is called only once as soon as the model is constructed.
         """
-        # By default, we want to use the JAX backend for Keras. You can use a different
-        # backend by setting the `KERAS_BACKEND` environment variable.
 
         self._configure_logging()
         logging.info("Loading model context...")
 
         self.device = "cpu"
+        # assign model architecture class attribute
         self.model = GPTModel(NEW_CONFIG)
+        # define the binary classification output head
         out_head = torch.nn.Linear(
             in_features=NEW_CONFIG["emb_dim"],
             out_features=2,
         )
-
+        # replace the existing output head with the new head
         self.model.out_head = out_head
         self.model.eval()
 
-
         self.model.to(self.device)
-
+        # assign the tokenizer to a class attribute
         self.tokenizer = tiktoken.get_encoding(self.encoding_name)
         # If the DATA_COLLECTION_URI environment variable is set, we should use it
         # to specify the database filename. Otherwise, we'll use the default filename
@@ -290,24 +285,22 @@ class Model(mlflow.pyfunc.PythonModel):
 
     def predict(
         self,
-        context: Optional[Any], # PythonModelContext, but Optional[Any] to avoid import error in snippet
+        context: Optional[Any],
         model_input: pd.DataFrame, # Explicitly expect a DataFrame based on MLflow behavior
         params: Optional[Dict[str, Any]] = None,
     ) -> list: # Return type is a list (likely of dictionaries)
         """Handle the request received from the client.
-
         This method is responsible for processing the input data received from the
         client, making a prediction using the model, and returning a readable response
         to the client.
         """
         logging.info(
             "Received prediction request with %d %s",
-            len(model_input), # len() on a DataFrame gives number of rows
+            len(model_input),
             "samples" if len(model_input) > 1 else "sample",
         )
 
-        # model_input is expected to be a DataFrame with a "text" column
-        # based on the signature and the curl command structure.
+        # verify that model_input DataFrame has a "text" column
         if "text" not in model_input.columns:
             logging.error("Input DataFrame is missing the 'text' column.")
             # Return a list of error dicts, matching the expected output structure count
@@ -353,17 +346,11 @@ class Model(mlflow.pyfunc.PythonModel):
 
         result = []
         if output is not None:
-            predictions = output
+            classifications = output
 
-            # Let's transform the prediction index back to the
-            # original species. We can use the target transformer
-            # to access the list of classes.
-
-            # We can now return the prediction and the confidence from the model.
-            # Notice that we need to unwrap the numpy values so we can serialize the
-            # output as JSON.
+            # Return the prediction from the model output as JSON.
             result = [
-                {"classification": prediction} for prediction in predictions
+                {"classification": classification} for classification in classifications
             ]
 
         return result
@@ -411,19 +398,19 @@ class Model(mlflow.pyfunc.PythonModel):
             # before storing it in the database.
             data = model_input.copy()
 
-            # We need to add the current time and the prediction
+            # We need to add the current time and the classification
             # to the DataFrame to store everything together.
             data["date"] = datetime.now(timezone.utc)
 
-            # Let's initialize the prediction and confidence columns with None. We'll
-            # overwrite them later if the model output is not empty.
+            # Initialize the classification with None. We'll
+            # overwrite it later if the model output is not empty.
             data["classification"] = None
 
-            # Let's also add a column to store the ground truth. This column can be
+            # add a column to store the ground truth. This column can be
             # used by the labeling team to provide the actual species for the data.
             data["ground_truth"] = None
 
-            # If the model output is not empty, we should update the prediction
+            # If the model output is not empty, update the classification
             # columns with the corresponding values.
             if model_output is not None and len(model_output) > 0:
                 data["classification"] = [item["classification"] for item in model_output]
