@@ -21,11 +21,10 @@ configure_logging()
 @pypi_base(
     python=PYTHON,
     packages=packages("pandas", "numpy", "boto3", "requests", "nltk", "Faker",
-                      "tiktoken", "torch", "tensorflow"),
+                      "tiktoken"),
 )
 class SpamTraffic(FlowSpec, FlowMixin):
     """A pipeline for generating traffic or labeling data captured by a spam classifier model.
-
     This pipeline can send synthetic spam/non-spam text to a hosted model or generate ground truth
     labels using the data captured by the model.
     """
@@ -118,15 +117,19 @@ class SpamTraffic(FlowSpec, FlowMixin):
     @step
     def start(self):
         """Start the pipeline and load or generate the dataset."""
+
+        # verify action parameter is a valid options
         if self.action not in ["traffic", "labeling"]:
             message = "The specified action is not supported."
             raise RuntimeError(message)
 
+        # verify target parameter is a valid options
         if self.target not in ["local", "sagemaker"]:
             message = "The specified target is not supported."
             raise RuntimeError(message)
 
-        if self.drift_type not in ["none", "vocabulary", "misspellings", "length", "topics", "mixed"]:
+        # verify drift_type parameter is a valid options
+        if self.drift_type not in ["none", "vocabulary", "length"]:
             message = "The specified drift type is not supported."
             raise RuntimeError(message)
 
@@ -145,6 +148,7 @@ class SpamTraffic(FlowSpec, FlowMixin):
         final_data_list = []
         original_data_to_use = self.data.copy()  # Start with the data loaded in 'start"
         if self.action == "traffic":
+
         # Determine if synthetic data generation/mixing is needed
             if self.drift_type != "none" and self.drift_proportion > 0:
                 logging.info(
@@ -159,7 +163,7 @@ class SpamTraffic(FlowSpec, FlowMixin):
                     logging.info(f"Generating approximately {num_synthetic} synthetic samples.")
                     # Generate synthetic data (includes 'text' and 'ground_truth')
                     synthetic_data = self._generate_synthetic_data_scaled(
-                        num_synthetic)  # Using the scaled version from previous example
+                        num_synthetic)
 
                     # Apply drift ONLY to the synthetic data if drift_type is not 'none'
                     if self.drift_type != "none" and not synthetic_data.empty:
@@ -437,23 +441,22 @@ class SpamTraffic(FlowSpec, FlowMixin):
             spam_replacement_patterns = {
                 # Adjectives and emphasis
                 r'\bURGENT\b': ['CRUCIAL', 'RED ALERT', 'HOT DROP'],
-                r'\bCONGRATULATIONS\b': ['YO!', 'EZ WIN!', 'YOU MADE IT –'],
+                r'\bCONGRATULATIONS\b': ['YOU MADE IT –'],
                 r'\bImportant\b': ['Key', 'Major', 'Priority'],
                 # Can also be ham, but context of spam makes it stronger
-                r'\bFREE\b': ['Zero-Cost', 'No-Cap', 'Freebie'],
+                r'\bFREE\b': ['Zero-Cost', 'Freebie'],
 
                 # Nouns
-                r'\bcustomers\b': ['degens', 'apes', 'early birds'],
                 r'\bWINNER\b': ['SCORED', 'TOP SHOT', 'SWEEPED'],
                 r'\bsubscription\b': ['plan', 'sub', 'tier'],  # 'sub' and 'tier' can be neutral too
-                r'\boffer\b': ['alpha drop', 'moonshot', 'deal'],  # 'deal' can be neutral
-                r'\baction\b': ['tap in', 'ape in', 'lock it'],
+                r'\boffer\b': ['deal'],  # 'deal' can be neutral
+                r'\baction\b': ['tap in', 'lock in'],
                 r'\bannouncement\b': ['leak', 'drop', 'signal'],
-                r'\bdeadline\b': ['cutoff', 'final block', 'end date'],  # 'end date', 'cutoff' can be neutral
+                r'\bdeadline\b': ['cutoff', 'end date'],  # 'end date', 'cutoff' can be neutral
 
                 # Verbs
                 r'\bClick\b': ['Smash', 'Tap', 'Hit'],
-                r'\bMake\b': ['Stack', 'Farm', 'Print'],  # As in "Make $1000"
+                r'\bMake\b': ['Stack', 'Print'],  # As in "Make $1000"
                 r'\brequires\b': ['needs', 'demands', 'calls for'],  # 'needs', 'calls for' can be neutral
                 r'\bwill be\b': ['gonna be', 'getting', 'set to be'],  # 'gonna be', 'set to be' can be neutral
             }
@@ -467,12 +470,12 @@ class SpamTraffic(FlowSpec, FlowMixin):
                 (r'action required', 'tap-in needed'),
                 (r'special discount', 'moonbag markdown'),
                 (r'exclusive deal', 'whitelist alpha'),
-                # (r'provide feedback', 'drop your take'), # This could be ham-like too
-                # (r'just checking in', 'pinging you real quick'), # This is definitely more ham-like
-                # (r'let me know', 'hit me back'), # "hit me back" is spammy/aggressive, "ping me" is ham
-                # (r'good news', 'fresh alpha'), # "fresh alpha" is spammy crypto slang
-                # (r'reminder about', 'ping on'), # "ping on" is more ham-like
-                # (r'FYI', 'just so you know'), # "just so you know" is neutral/ham
+                (r'provide feedback', 'drop your take'), # This could be ham-like too
+                (r'just checking in', 'pinging you real quick'), # This is definitely more ham-like
+                (r'let me know', 'hit me back'), # "hit me back" is spammy/aggressive, "ping me" is ham
+                (r'good news', 'fresh alpha'), # "fresh alpha" is spammy crypto slang
+                (r'reminder about', 'ping on'), # "ping on" is more ham-like
+                (r'FYI', 'just so you know'), # "just so you know" is neutral/ham
             ]
 
             # --- New Ham-focused patterns ---
@@ -495,7 +498,7 @@ class SpamTraffic(FlowSpec, FlowMixin):
                 r'\bdeadline\b': ['due date', 'target date', 'cutoff point'],  # 'cutoff' from spam can also fit here
                 r'\breport\b': ['summary', 'write-up', 'analysis', 'briefing'],
                 r'\bproposal\b': ['pitch', 'suggestion', 'plan', 'submission'],
-                r'\bemail\b': ['message', 'note', 'comm'],
+                r'\bemail\b': ['message', 'note'],
 
                 # Verbs
                 r'\breview\b': ['eyeball', 'check out', 'scan', 'look over', 'assess'],
@@ -546,16 +549,9 @@ class SpamTraffic(FlowSpec, FlowMixin):
 
             # Combine original spam patterns with new ham patterns
             # If a key exists in both, the latter one (ham) would overwrite the spam one if merged directly.
-            # For this reason, it's better to select which dictionary to use based on message_type,
-            # or apply them selectively. For now, let's assume we want to expand the pool.
-            # A simple merge might not be ideal if keys clash with different *intents*.
-            # For this example, we'll make them additive, but be mindful of key clashes.
-
-            # For simplicity in this example, we'll just make all patterns available.
-            # In a more robust system, you might select patterns based on `message_type`.
             all_replacement_patterns = spam_replacement_patterns.copy()
             all_replacement_patterns.update(
-                ham_replacement_patterns)  # ham patterns can overwrite spam if keys are identical
+                ham_replacement_patterns)  # ham patterns overwrite spam if keys are identical
 
             all_phrase_replacements = spam_phrase_replacements + ham_phrase_replacements
             # Ensure phrase replacements offer choices if the replacement is a list
@@ -618,46 +614,10 @@ class SpamTraffic(FlowSpec, FlowMixin):
             return ' '.join(words)
 
         # Function to change length distribution
-        def apply_length_drift(text):
-
-            # Either shorten or lengthen
-            if random.random() < 0.5:
-                # Shorten: keep only first part of the message
-                words = text.split()
-                keep_ratio = max(0.3, 1 - random.random())
-                return " ".join(words[:max(3, int(len(words) * keep_ratio))])
-            else:
-                # Lengthen: add filler text
-                fillers = [
-                    "As I mentioned earlier,",
-                    "Please note that",
-                    "I want to emphasize that",
-                    "It's important to remember that",
-                    "Just to let you know,",
-                    "For your information,",
-                    "To be clear,",
-                    "In other words,",
-                    "To put it differently,",
-                    "As a matter of fact,"
-                ]
-
-                # Add 1-3 fillers depending on intensity
-                num_fillers = random.randint(1, 4)
-                chosen_fillers = random.sample(fillers, min(num_fillers, len(fillers)))
-
-                # 50% chance to add at beginning, 50% chance to add at end
-                if random.random() < 0.5:
-                    return " ".join(chosen_fillers) + " " + text
-                else:
-                    return text + " " + " ".join(chosen_fillers)
 
         # Apply the specified drift type
         if self.drift_type == "vocabulary":
             df["text"] = df["text"].apply(apply_vocabulary_drift)
-        elif self.drift_type == "length":
-            df["text"] = df["text"].apply(apply_length_drift)
-        elif self.drift_type == "mixed":
-            # Apply a random mix of drift types to each sample
             for idx, row in df.iterrows():
                 text = row["text"]
                 drift_funcs = [apply_vocabulary_drift, apply_length_drift]
@@ -704,7 +664,6 @@ class SpamTraffic(FlowSpec, FlowMixin):
 
     def _get_label(self, classification):
         """Generate a ground truth label for a spam classification.
-
         This simulates the ground truth labeling process with a certain quality level.
         """
         import random
