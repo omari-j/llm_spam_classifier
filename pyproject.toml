@@ -5,7 +5,9 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.9"
 dependencies = [
+    "evidently>=0.7.6",
     "metaflow>=2.15.14",
+    "metaflow-card-html>=1.0.3",
     "mlflow==2.8.1",
     "pandas==2.0.3",
     "tensorflow==2.13.0",

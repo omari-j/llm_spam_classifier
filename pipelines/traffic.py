@@ -85,9 +85,6 @@ class SpamTraffic(FlowSpec, FlowMixin):
             "The type of drift to introduce in the text samples. Options: "
             "'none': No drift, "
             "'vocabulary': Introduce new vocabulary/slang terms, "
-            "'misspellings': Add misspellings to the text, "
-            "'length': Change the length distribution of messages, "
-            "'topics': Shift the topic distribution of messages, "
         ),
         default="none",
         required=False,
@@ -620,7 +617,7 @@ class SpamTraffic(FlowSpec, FlowMixin):
             df["text"] = df["text"].apply(apply_vocabulary_drift)
             for idx, row in df.iterrows():
                 text = row["text"]
-                drift_funcs = [apply_vocabulary_drift, apply_length_drift]
+                drift_funcs = [apply_vocabulary_drift]
 
                 # Apply 1-3 drift functions randomly
                 num_drifts = random.randint(1, 3)
