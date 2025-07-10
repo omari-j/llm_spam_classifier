@@ -1,4 +1,4 @@
-# End-to-end Fine-tuning Pipeline for a Spam Classification System
+# LLM-Based Spam Classification Pipeline with Orchestration, Monitoring and Deployment
 This project is an end-to-end machine learning pipeline that:
 
 - Fine-tunes a GPT-2 large large language model to classify spam messages.
